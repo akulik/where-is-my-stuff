@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Де мої речі?</title>
+  <style>
+    /* ── Global styles ─────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3a;
+      --accent:    #4f8ef7;
+      --accent2:   #7c5df7;
+      --success:   #34d399;
+      --warning:   #fbbf24;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --radius:    16px;
+    }
+
+    body {
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 4rem;
+    }
+
+    /* ── Header ───────────────────────────────────────── */
+    header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    header h1 {
+      font-size: clamp(1.6rem, 5vw, 2.4rem);
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    header p {
+      color: var(--muted);
+      margin-top: .4rem;
+      font-size: .95rem;
+    }
+
+    /* ── Microphone card ──────────────────────────────── */
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    /* ── Microphone button ────────────────────────────── */
+    #mic-btn {
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform .15s, box-shadow .15s;
+      box-shadow: 0 0 0 0 rgba(79,142,247,.4);
+      position: relative;
+      flex-shrink: 0;
+    }
+    #mic-btn:hover  { transform: scale(1.05); }
+    #mic-btn:active { transform: scale(.97); }
+
+    /* Pulse animation while recording */
+    #mic-btn.recording {
+      animation: pulse 1.2s ease-in-out infinite;
+      background: linear-gradient(135deg, #ef4444, #f97316);
+    }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0  0   rgba(239,68,68,.6); }
+      70%  { box-shadow: 0 0 0 22px rgba(239,68,68,.0); }
+      100% { box-shadow: 0 0 0  0   rgba(239,68,68,.0); }
+    }
+
+    /* SVG microphone icon */
+    #mic-btn svg { width: 44px; height: 44px; }
+
+    /* ── Status text ──────────────────────────────────── */
+    #status {
+      font-size: .9rem;
+      color: var(--muted);
+      letter-spacing: .03em;
+      min-height: 1.4em;
+      text-align: center;
+    }
+    #status.active { color: #ef4444; }
+
+    /* ── Recognized text block ────────────────────────── */
+    .section-label {
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      align-self: flex-start;
+    }
+
+    #transcript-box, #response-box {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: calc(var(--radius) - 4px);
+      padding: 1rem 1.2rem;
+      min-height: 56px;
+      font-size: 1rem;
+      line-height: 1.55;
+      color: var(--text);
+      transition: border-color .2s;
+      word-break: break-word;
+    }
+    #transcript-box { color: #94a3b8; font-style: italic; }
+    #transcript-box.filled { color: var(--text); font-style: normal; }
+
+    /* Border color depending on reply intent */
+    #response-box.save    { border-color: var(--success); }
+    #response-box.query   { border-color: var(--accent);  }
+    #response-box.unknown { border-color: var(--warning); }
+
+    /* ── Items list ───────────────────────────────────── */
+    .items-section {
+      width: 100%;
+      max-width: 520px;
+      margin-top: 2rem;
+    }
+    .items-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: .8rem;
+    }
+    .items-header h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    #refresh-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 8px;
+      padding: .3rem .7rem;
+      font-size: .8rem;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    #refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    #items-list {
+      display: flex;
+      flex-direction: column;
+      gap: .5rem;
+    }
+    .item-row {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: .7rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: .9rem;
+    }
+    .item-row .item-name  { font-weight: 600; color: var(--accent); }
+    .item-row .item-loc   { color: var(--muted); }
+    .item-row .del-btn    {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 1rem;
+      padding: 0 .25rem;
+      transition: color .2s;
+      line-height: 1;
+    }
+    .item-row .del-btn:hover { color: #ef4444; }
+
+    .items-empty {
+      color: var(--muted);
+      font-size: .9rem;
+      text-align: center;
+      padding: 1rem 0;
+    }
+
+    /* ── Example hints ────────────────────────────────── */
+    .hints {
+      width: 100%;
+      max-width: 520px;
+      margin-top: 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .6rem;
+    }
+    .hint {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: .7rem .9rem;
+      font-size: .8rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .hint:hover { border-color: var(--accent); color: var(--text); }
+    .hint strong { color: var(--accent); display: block; margin-bottom: .2rem; }
+
+    /* ── Family API key UI ─────────────────────────────── */
+    .api-key-row {
+      width: 100%;
+      display: flex;
+      gap: .5rem;
+      margin-bottom: .4rem;
+    }
+    .api-key-row input {
+      flex: 1;
+      background: var(--bg);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: .45rem .7rem;
+      color: var(--text);
+      font-size: .85rem;
+    }
+    .api-key-row input::placeholder {
+      color: var(--muted);
+    }
+    .api-key-row button {
+      padding: .45rem .9rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--accent);
+      color: #fff;
+      font-size: .8rem;
+      cursor: pointer;
+      transition: background .15s, transform .1s;
+      white-space: nowrap;
+    }
+    .api-key-row button:hover {
+      background: var(--accent2);
+    }
+    .api-key-row button:active {
+      transform: scale(.97);
+    }
+    .api-key-status {
+      width: 100%;
+      font-size: .75rem;
+      color: var(--muted);
+      min-height: 1.2em;
+    }
+    .api-key-status.error {
+      color: #f97316;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ───────────────────────────────────────── -->
+  <header>
+    <h1>🔍 Де мої речі?</h1>
+    <p>Натисніть кнопку і скажіть команду українською</p>
+  </header>
+
+  <!-- ── Main control card ─────────────────────────────── -->
+  <div class="card">
+    <!-- Family API key input -->
+    <div class="api-key-row">
+      <input
+        id="api-key-input"
+        type="password"
+        placeholder="Сімейний ключ"
+        autocomplete="off"
+      />
+      <button id="api-key-save-btn">OK</button>
+    </div>
+    <div id="api-key-status" class="api-key-status"></div>
+
+    <!-- Large microphone button -->
+    <button id="mic-btn" title="Натисніть, щоб говорити">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="2" width="6" height="12" rx="3"/>
+        <path d="M5 10a7 7 0 0 0 14 0"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+        <line x1="8"  y1="22" x2="16" y2="22"/>
+      </svg>
+    </button>
+
+    <!-- Status text -->
+    <div id="status">Натисніть мікрофон і говоріть</div>
+
+    <!-- Recognized text -->
+    <span class="section-label">Ви сказали:</span>
+    <div id="transcript-box">тут з'явиться ваш текст…</div>
+
+    <!-- Server reply -->
+    <span class="section-label">Відповідь:</span>
+    <div id="response-box">тут буде відповідь асистента…</div>
+  </div>
+
+  <!-- ── Example hints ─────────────────────────────────── -->
+  <div class="hints">
+    <div class="hint"
+         data-text="Я поклав ключі на полицю">
+      <strong>Зберегти</strong>Я поклав ключі на полицю
+    </div>
+    <div class="hint"
+         data-text="Де мої ключі?">
+      <strong>Знайти</strong>Де мої ключі?
+    </div>
+    <div class="hint"
+         data-text="Я залишила окуляри в машині">
+      <strong>Зберегти</strong>Я залишила окуляри в машині
+    </div>
+    <div class="hint"
+         data-text="Де мій паспорт?">
+      <strong>Знайти</strong>Де мій паспорт?
+    </div>
+  </div>
+
+  <!-- ── Saved items list ──────────────────────────────── -->
+  <div class="items-section">
+    <div class="items-header">
+      <h2>Збережені речі</h2>
+      <button id="refresh-btn" onclick="loadItems()">↻ Оновити</button>
+    </div>
+    <div id="items-list"><div class="items-empty">Ще немає збережених речей</div></div>
+  </div>
+
+  <script>
+    // ── DOM elements ─────────────────────────────────────
+    const micBtn        = document.getElementById('mic-btn');
+    const statusEl      = document.getElementById('status');
+    const transcriptBox = document.getElementById('transcript-box');
+    const responseBox   = document.getElementById('response-box');
+    const itemsList     = document.getElementById('items-list');
+    const apiKeyInput   = document.getElementById('api-key-input');
+    const apiKeySaveBtn = document.getElementById('api-key-save-btn');
+    const apiKeyStatus  = document.getElementById('api-key-status');
+
+    // ── Family key handling ──────────────────────────────
+    const API_KEY_STORAGE_KEY = 'familyApiKey';
+
+    function getStoredApiKey() {
+      return localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+    }
+
+    function setStoredApiKey(value) {
+      if (value) {
+        localStorage.setItem(API_KEY_STORAGE_KEY, value);
+      } else {
+        localStorage.removeItem(API_KEY_STORAGE_KEY);
+      }
+    }
+
+    function requireApiKeyOrWarn() {
+      const key = getStoredApiKey();
+      if (!key) {
+        apiKeyStatus.textContent = 'Спочатку введіть сімейний ключ.';
+        apiKeyStatus.classList.add('error');
+        return null;
+      }
+      apiKeyStatus.textContent = '';
+      apiKeyStatus.classList.remove('error');
+      return key;
+    }
+
+    apiKeySaveBtn.addEventListener('click', () => {
+      const value = apiKeyInput.value.trim();
+      setStoredApiKey(value);
+      if (value) {
+        apiKeyStatus.textContent = 'Ключ збережено локально в цьому браузері.';
+        apiKeyStatus.classList.remove('error');
+      } else {
+        apiKeyStatus.textContent = 'Ключ очищено. Введіть новий перед використанням.';
+        apiKeyStatus.classList.add('error');
+      }
+    });
+
+    // Prefill the input when page loads
+    (function initApiKeyUi() {
+      const key = getStoredApiKey();
+      if (key) {
+        apiKeyInput.value = key;
+        apiKeyStatus.textContent = 'Ключ завантажено з цього браузера.';
+        apiKeyStatus.classList.remove('error');
+      }
+    })();
+
+    // ── Web Speech API — speech recognition ──────────────
+    // Check browser support
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      statusEl.textContent = '⚠ Браузер не підтримує Web Speech API. Спробуйте Chrome.';
+      micBtn.disabled = true;
+    }
+
+    let recognition = null;
+    let isRecording  = false;
+
+    function buildRecognition() {
+      const r = new SpeechRecognition();
+      r.lang           = 'uk-UA';   // Ukrainian language
+      r.continuous     = false;     // Stop after first pause
+      r.interimResults = true;      // Show interim results
+      r.maxAlternatives = 1;
+
+      // Received interim or final recognition result
+      r.onresult = (event) => {
+        let interim = '';
+        let final   = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const t = event.results[i][0].transcript;
+          if (event.results[i].isFinal) final += t;
+          else interim += t;
+        }
+        // Show recognition in real time
+        transcriptBox.textContent   = final || interim || '…';
+        transcriptBox.className     = (final || interim) ? 'filled' : '';
+
+        if (final) sendText(final.trim()); // Send to the server
+      };
+
+      r.onaudiostart  = () => setRecording(true);
+      r.onaudioend    = () => setRecording(false);
+      r.onend         = () => setRecording(false);
+
+      r.onerror = (e) => {
+        setRecording(false);
+        const msgs = {
+          'no-speech'          : 'Мовлення не почуто. Спробуйте ще раз.',
+          'audio-capture'      : '⚠ Немає доступу до мікрофону.',
+          'not-allowed'        : '⚠ Дозвіл на мікрофон заблоковано.',
+          'network'            : '⚠ Помилка мережі при розпізнаванні.',
+          'language-not-supported': '⚠ Українська мова не підтримується у цьому браузері.',
+        };
+        statusEl.textContent = msgs[e.error] || `Помилка: ${e.error}`;
+      };
+
+      return r;
+    }
+
+    // ── Toggle recording state ───────────────────────────
+    function setRecording(active) {
+      isRecording = active;
+      micBtn.classList.toggle('recording', active);
+      statusEl.className   = active ? 'active' : '';
+      statusEl.textContent = active ? '🔴 Слухаю…' : 'Натисніть мікрофон і говоріть';
+    }
+
+    // ── Microphone button click ──────────────────────────
+    micBtn.addEventListener('click', () => {
+      if (isRecording) {
+        recognition?.stop();
+        return;
+      }
+      recognition = buildRecognition();
+      recognition.start();
+    });
+
+    // ── Send recognized text to the server ───────────────
+    async function sendText(text) {
+      if (!text) return;
+
+      const apiKey = requireApiKeyOrWarn();
+      if (!apiKey) return;
+
+      // Update transcript (also used by hint-clicks)
+      transcriptBox.textContent = text;
+      transcriptBox.className   = 'filled';
+
+      responseBox.textContent   = '⌛ Обробляю…';
+      responseBox.className     = '';
+
+      try {
+        const res  = await fetch('/voice', {
+          method : 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': apiKey,
+          },
+          body   : JSON.stringify({ text }),
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+
+        // Show reply
+        responseBox.textContent = data.reply;
+        responseBox.className   = data.intent || '';
+
+        // Speak reply via Web Speech Synthesis
+        speak(data.reply);
+
+        // Refresh items list
+        loadItems();
+
+      } catch (err) {
+        responseBox.textContent = `⚠ Помилка з'єднання: ${err.message}`;
+        responseBox.className   = 'unknown';
+      }
+    }
+
+    // ── Speech synthesis (speak reply aloud) ─────────────
+    function speak(text) {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel(); // Cancel previous utterance
+
+      const utterance  = new SpeechSynthesisUtterance(text);
+      utterance.lang   = 'uk-UA';
+      utterance.rate   = 1.0;
+      utterance.pitch  = 1.0;
+
+      // Try to find Ukrainian voice, if available
+      const voices = window.speechSynthesis.getVoices();
+      const ukVoice = voices.find(v => v.lang.startsWith('uk'));
+      if (ukVoice) utterance.voice = ukVoice;
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    // ── Load saved items list ────────────────────────────
+    async function loadItems() {
+      try {
+        const apiKey = requireApiKeyOrWarn();
+        if (!apiKey) return;
+
+        const res  = await fetch('/items', {
+          headers: { 'X-API-Key': apiKey },
+        });
+        const data = await res.json();
+        renderItems(data.items);
+      } catch (_) {
+        // Silently ignore list loading errors
+      }
+    }
+
+    function renderItems(items) {
+      if (!items || items.length === 0) {
+        itemsList.innerHTML = '<div class="items-empty">Ще немає збережених речей</div>';
+        return;
+      }
+      itemsList.innerHTML = items.map(item => `
+        <div class="item-row">
+          <span>
+            <span class="item-name">${escHtml(item.item)}</span>
+            &nbsp;→&nbsp;
+            <span class="item-loc">${escHtml(item.location)}</span>
+          </span>
+          <button class="del-btn" onclick="removeItem(${item.id})" title="Видалити">✕</button>
+        </div>
+      `).join('');
+    }
+
+    async function removeItem(id) {
+      const apiKey = requireApiKeyOrWarn();
+      if (!apiKey) return;
+
+      await fetch(`/items/${id}`, {
+        method: 'DELETE',
+        headers: { 'X-API-Key': apiKey },
+      });
+      loadItems();
+    }
+
+    // Escape HTML for safe output
+    function escHtml(str) {
+      return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
+    // ── Bootstrap ────────────────────────────────────────
+    loadItems();
+
+    // Voices may load asynchronously later
+    window.speechSynthesis?.addEventListener('voiceschanged', () => {});
+  </script>
+</body>
+</html>
