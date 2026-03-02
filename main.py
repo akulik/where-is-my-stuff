@@ -16,9 +16,7 @@ from nlp import parse_intent
 
 # Shared family key. Set via FAMILY_API_KEY environment variable.
 # If it is not set, a default value is used.
-FAMILY_API_KEY = os.getenv("FAMILY_API_KEY", "family-kulyk-2026")
-
-print("FAMILY_API_KEY at startup:", repr(FAMILY_API_KEY))
+FAMILY_API_KEY = os.getenv("FAMILY_API_KEY", "hmmm")
 
 
 def require_api_key(x_api_key: str = Header(...)) -> None:

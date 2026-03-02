@@ -1,33 +1,40 @@
 """
-SQLite database module.
+PostgreSQL (Neon) database module.
 Stores and looks up item locations.
 """
-import sqlite3
+import os
 from datetime import datetime
 from typing import Optional
 
-# Database file name
-DB_FILE = "stuff.db"
+# Use psycopg2 to connect to PostgreSQL
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-def get_connection() -> sqlite3.Connection:
-    """Open a connection to the database."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row  # return rows as dict-like objects
-    return conn
+def get_connection():
+    """Open a connection to the PostgreSQL database."""
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is not set!")
+    
+    # Connect and specify that we want to receive results as dictionary-like objects
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 
 def init_db() -> None:
     """Create items table if it does not exist."""
     with get_connection() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS items (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                item        TEXT    NOT NULL,
-                location    TEXT    NOT NULL,
-                updated_at  TEXT    DEFAULT (datetime('now','localtime'))
-            )
-        """)
+        with conn.cursor() as cur:
+            # PostgreSQL uses SERIAL instead of AUTOINCREMENT 
+            # and TIMESTAMP instead of TEXT for dates
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS items (
+                    id          SERIAL PRIMARY KEY,
+                    item        TEXT    NOT NULL,
+                    location    TEXT    NOT NULL,
+                    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         conn.commit()
 
 
@@ -42,27 +49,29 @@ def save_item(item: str, location: str) -> str:
     location = location.strip().lower()
 
     with get_connection() as conn:
-        # Look for exact match (case-insensitive)
-        existing = conn.execute(
-            "SELECT id FROM items WHERE LOWER(item) = ?", (item,)
-        ).fetchone()
+        with conn.cursor() as cur:
+            # In PostgreSQL, parameter markers are denoted as %s (not ?)
+            cur.execute(
+                "SELECT id FROM items WHERE LOWER(item) = %s", (item,)
+            )
+            existing = cur.fetchone()
 
-        if existing:
-            # Update location and timestamp
-            conn.execute(
-                "UPDATE items SET location = ?, updated_at = ? WHERE id = ?",
-                (location, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), existing["id"]),
-            )
-            conn.commit()
-            return "updated"
-        else:
-            # Insert a new record
-            conn.execute(
-                "INSERT INTO items (item, location) VALUES (?, ?)",
-                (item, location),
-            )
-            conn.commit()
-            return "created"
+            if existing:
+                # Update location and timestamp
+                cur.execute(
+                    "UPDATE items SET location = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                    (location, existing["id"]),
+                )
+                conn.commit()
+                return "updated"
+            else:
+                # Insert a new record
+                cur.execute(
+                    "INSERT INTO items (item, location) VALUES (%s, %s)",
+                    (item, location),
+                )
+                conn.commit()
+                return "created"
 
 
 def find_item(query: str) -> Optional[dict]:
@@ -74,42 +83,41 @@ def find_item(query: str) -> Optional[dict]:
     query = query.strip().lower()
 
     with get_connection() as conn:
-        # 1. Exact match
-        row = conn.execute(
-            "SELECT item, location FROM items WHERE LOWER(item) = ?",
-            (query,),
-        ).fetchone()
-        if row:
-            return {"item": row["item"], "location": row["location"]}
+        with conn.cursor() as cur:
+            # 1. Exact match
+            cur.execute(
+                "SELECT item, location FROM items WHERE LOWER(item) = %s",
+                (query,),
+            )
+            row = cur.fetchone()
+            if row:
+                return {"item": row["item"], "location": row["location"]}
 
-        # 2. LIKE search (substring search)
-        # Useful when query "ключ" should find "ключі" and vice versa
-        rows = conn.execute(
-            "SELECT item, location FROM items WHERE LOWER(item) LIKE ?",
-            (f"%{query}%",),
-        ).fetchall()
-        if rows:
-            return {"item": rows[0]["item"], "location": rows[0]["location"]}
+            # 2. LIKE search (substring search)
+            cur.execute(
+                "SELECT item, location FROM items WHERE LOWER(item) LIKE %s",
+                (f"%{query}%",),
+            )
+            row = cur.fetchone() # Get the first match if there are multiple
+            if row:
+                return {"item": row["item"], "location": row["location"]}
 
-        # Reverse LIKE: look for stored item name inside the query
-        # For example: stored "ключі", query "ключами"
-        rows = conn.execute(
-            "SELECT item, location FROM items WHERE ? LIKE '%' || LOWER(item) || '%'",
-            (query,),
-        ).fetchall()
-        if rows:
-            return {"item": rows[0]["item"], "location": rows[0]["location"]}
+            # Reverse LIKE: look for stored item name inside the query
+            cur.execute(
+                "SELECT item, location FROM items WHERE %s LIKE '%%' || LOWER(item) || '%%'",
+                (query,),
+            )
+            row = cur.fetchone()
+            if row:
+                return {"item": row["item"], "location": row["location"]}
 
-        # 3. Fuzzy search with thefuzz
-        # Handles different word endings / inflections
-        all_items = conn.execute(
-            "SELECT item, location FROM items"
-        ).fetchall()
+            # 3. Fuzzy search with thefuzz
+            cur.execute("SELECT item, location FROM items")
+            all_items = cur.fetchall()
 
     if not all_items:
         return None
 
-    # Import here so startup time is not affected if the library is never used
     from thefuzz import fuzz
 
     best_match = None
@@ -117,13 +125,11 @@ def find_item(query: str) -> Optional[dict]:
 
     for row in all_items:
         stored = row["item"]
-        # partial_ratio works well with substrings (ключ → ключі)
         score = fuzz.partial_ratio(query, stored)
         if score > best_score:
             best_score = score
             best_match = {"item": stored, "location": row["location"]}
 
-    # Minimal match score threshold — 65%
     if best_score >= 65:
         return best_match
 
@@ -133,15 +139,27 @@ def find_item(query: str) -> Optional[dict]:
 def get_all_items() -> list[dict]:
     """Return all saved items (for viewing via API)."""
     with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, item, location, updated_at FROM items ORDER BY updated_at DESC"
-        ).fetchall()
-        return [dict(row) for row in rows]
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, item, location, updated_at FROM items ORDER BY updated_at DESC"
+            )
+            rows = cur.fetchall()
+            
+            result = []
+            for row in rows:
+                # Convert RealDictRow (from psycopg2) into a standard Python dictionary
+                row_dict = dict(row)
+                # Format the datetime object to a string if necessary
+                if isinstance(row_dict["updated_at"], datetime):
+                    row_dict["updated_at"] = row_dict["updated_at"].strftime("%Y-%m-%d %H:%M:%S")
+                result.append(row_dict)
+            return result
 
 
 def delete_item(item_id: int) -> bool:
-    """Delete a record by ID. Return True if something was deleted."""
+    """Delete a record by ID. Return True if a row was actually deleted."""
     with get_connection() as conn:
-        cursor = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
-        conn.commit()
-        return cursor.rowcount > 0
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM items WHERE id = %s", (item_id,))
+            conn.commit()
+            return cur.rowcount > 0
