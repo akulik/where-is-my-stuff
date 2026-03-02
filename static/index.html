@@ -427,7 +427,7 @@
       r.continuous     = false;     // Stop after first pause
       r.interimResults = true;      // Show interim results
       r.maxAlternatives = 1;
-
+      
       // Received interim or final recognition result
       r.onresult = (event) => {
         let interim = '';
@@ -440,8 +440,14 @@
         // Show recognition in real time
         transcriptBox.textContent   = final || interim || '…';
         transcriptBox.className     = (final || interim) ? 'filled' : '';
-
-        if (final) sendText(final.trim()); // Send to the server
+        
+        if (final) { 
+          sendText(final.trim());
+          r.text = final.trim();
+        } else {
+          r.text = interim.trim();
+        }
+        // Send to the server
       };
 
       r.onaudiostart  = () => setRecording(true);
@@ -475,6 +481,7 @@
     micBtn.addEventListener('click', () => {
       if (isRecording) {
         recognition?.stop();
+        sendText(recognition.text);
         return;
       }
       recognition = buildRecognition();

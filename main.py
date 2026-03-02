@@ -16,17 +16,20 @@ from nlp import parse_intent
 
 # Shared family key. Set via FAMILY_API_KEY environment variable.
 # If it is not set, a default value is used.
-FAMILY_API_KEY = os.getenv("FAMILY_API_KEY", "hmmm")
+FAMILY_API_KEY = os.getenv("FAMILY_API_KEY", "family-kulyk-2026")
 
 print("FAMILY_API_KEY at startup:", repr(FAMILY_API_KEY))
 
 
-def require_api_key(x_api_key: str = Header(..., alias="X-API-Key")) -> None:
+def require_api_key(x_api_key: str = Header(...)) -> None:
     """
     Simple API authentication for family use.
 
     All "sensitive" endpoints require header:
       X-API-Key: <family_key>
+
+    Note: no alias — FastAPI auto-converts x_api_key → x-api-key,
+    Starlette lowercases all incoming headers, so matching is reliable.
     """
     if not FAMILY_API_KEY:
         # Якщо ключ не налаштовано, вважаємо, що доступ заборонений
